@@ -1,5 +1,5 @@
-import { PromptLab } from "@/components/prompt-lab";
+import { Showcase } from "@/components/showcase";
 
 export default function Home() {
-  return <PromptLab />;
+  return <Showcase />;
 }

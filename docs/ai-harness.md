@@ -1,250 +1,289 @@
 # AI Harness Documentation
 
-AI Harness is a personal Prompt Lab for AWS Bedrock. It runs locally, keeps AWS credentials on the server, saves prompt templates and run history in SQLite, and provides a clean path to a later AWS deployment.
+AI Harness is a local-first command-line tool for running and comparing AWS Bedrock prompts. Its public website is a separate static product demo that never calls AWS.
 
-## Architecture
+## Design Goals
 
-The app is a Next.js TypeScript project using the App Router.
+The project is built around four constraints:
 
-- `src/app/page.tsx` renders the Prompt Lab as the first screen.
-- `src/components/prompt-lab.tsx` contains the client-side editor, template list, run history, output panel, and comparison UI.
-- `src/app/api/*` contains server-side API routes for config, runs, run details, and templates.
-- `src/lib/bedrock.ts` wraps AWS Bedrock Runtime and maps internal run requests to the Bedrock `Converse` API.
-- `src/lib/validation.ts` validates prompt and inference settings before any Bedrock call.
-- `src/lib/prisma.ts` owns the Prisma client singleton.
-- `prisma/schema.prisma` defines the local SQLite persistence model.
+- AWS credentials must never be shipped to the browser.
+- A public portfolio deployment must not create model inference charges.
+- Prompt experiments should be reproducible and inspectable.
+- The CLI should work without a database server or account system.
 
-The browser never receives AWS credentials. All Bedrock calls happen inside server-side API routes.
+The resulting split is intentional:
 
-## Local Setup
-
-Install dependencies:
-
-```bash
-npm install
+```text
+Static website                          Local CLI
+--------------                          ---------
+Netlify-hosted                          Runs on the user's machine
+Mock interaction                        Real Bedrock Converse calls
+No secrets                              Standard AWS credential chain
+No persistence                          Local JSON history and templates
+No cloud runtime                        Explicit model invocation only
 ```
 
-Create local environment config:
+## Project Structure
+
+- `src/cli/index.ts` defines the CLI commands and options.
+- `src/cli/store.ts` provides atomic local persistence.
+- `src/cli/aws.ts` handles AWS identity checks and optional model discovery.
+- `src/lib/bedrock.ts` maps requests to Bedrock `Converse`.
+- `src/lib/validation.ts` validates prompt and inference settings.
+- `src/components/showcase.tsx` implements the static interactive website.
+- `netlify.toml` configures the static Netlify build.
+
+## Installation
+
+Clone and install:
 
 ```bash
+git clone https://github.com/Abdul-Burale/ai-harness.git
+cd ai-harness
+npm install
 cp .env.example .env
 ```
 
-Generate Prisma and create the SQLite database:
+Build the CLI:
 
 ```bash
-npm run db:generate
-npm run db:push
+npm run build:cli
 ```
 
-Start the local app:
+Run it from the repository:
+
+```bash
+npm run cli -- --help
+```
+
+Optionally link the package while developing:
+
+```bash
+npm link
+ai-harness --help
+```
+
+## AWS Configuration
+
+The CLI uses the standard AWS SDK credential chain. Supported approaches include:
+
+- `AWS_PROFILE` pointing to a local AWS profile.
+- AWS SSO credentials.
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional session token.
+- An IAM role when running in an AWS-managed environment.
+
+Example `.env`:
+
+```bash
+AWS_REGION="eu-west-1"
+AWS_PROFILE="your-profile"
+DEFAULT_BEDROCK_MODEL_ID="amazon.nova-lite-v1:0"
+BEDROCK_MODEL_IDS="amazon.nova-lite-v1:0,anthropic.claude-3-haiku-20240307-v1:0"
+```
+
+The IAM identity needs `bedrock:InvokeModel` for normal prompt runs. Future streaming support will require `bedrock:InvokeModelWithResponseStream`.
+
+Model access must also be enabled for the selected model in the AWS Bedrock console and region.
+
+## Command Reference
+
+### `doctor`
+
+Checks local configuration and calls AWS STS to verify the current identity. It does not invoke a foundation model.
+
+```bash
+ai-harness doctor
+```
+
+### `models`
+
+Lists the model IDs configured in `BEDROCK_MODEL_IDS` without contacting AWS:
+
+```bash
+ai-harness models
+```
+
+Use `--live` to query the Bedrock foundation model catalogue:
+
+```bash
+ai-harness models --live
+ai-harness models --live --json
+```
+
+### `run`
+
+Runs a prompt through Bedrock `Converse` and stores the result:
+
+```bash
+ai-harness run "Review this API design"
+```
+
+Common options:
+
+```text
+-f, --file <path>          Read the prompt from a file
+-t, --template <name>      Run a saved template
+-m, --model <id>           Choose a Bedrock model
+-s, --system <text>        Set the system prompt
+--temperature <number>     Value from 0 to 1
+--top-p <number>           Value from 0 to 1
+--max-tokens <number>      Value from 1 to 4096
+--json                     Print JSON output
+```
+
+Failed calls are also saved. This preserves useful IAM, region, credential, and model-access errors in local history.
+
+### `history`
+
+Shows recent runs:
+
+```bash
+ai-harness history
+ai-harness history --limit 25
+ai-harness history --json
+```
+
+### `show`
+
+Shows a saved run using its full ID or a unique ID prefix:
+
+```bash
+ai-harness show 42ad08e1
+```
+
+### `compare`
+
+Displays settings, usage, latency, status, and output for two saved runs:
+
+```bash
+ai-harness compare 42ad08e1 c7b191ac
+```
+
+### `templates`
+
+Create or update a named template:
+
+```bash
+ai-harness templates save review "Review this API design" \
+  --model amazon.nova-lite-v1:0 \
+  --system "You are a precise technical reviewer."
+```
+
+List templates:
+
+```bash
+ai-harness templates list
+```
+
+Run a template:
+
+```bash
+ai-harness run --template review
+```
+
+## Local Persistence
+
+By default, data is stored at:
+
+```text
+~/.ai-harness/store.json
+```
+
+The store contains:
+
+- Up to 500 recent runs.
+- Reusable named templates.
+- Prompt and system prompt snapshots.
+- Model and inference settings.
+- Model output, usage, latency, and errors.
+
+Writes use a temporary file followed by an atomic rename to reduce the chance of partial or corrupt data.
+
+Override the path for automation or isolated environments:
+
+```bash
+AI_HARNESS_STORE="/tmp/harness-store.json" ai-harness history
+```
+
+## Public Website
+
+The website is a static Next.js export. It presents an interactive mock workflow and clearly identifies itself as demo data.
+
+Run locally:
 
 ```bash
 npm run dev
 ```
 
-Open:
-
-```text
-http://localhost:3000
-```
-
-## Environment Variables
-
-The app reads these values from `.env`:
+Build:
 
 ```bash
-DATABASE_URL="file:./dev.db"
-AWS_REGION="eu-west-1"
-AWS_PROFILE="your-profile"
-DEFAULT_BEDROCK_MODEL_ID="anthropic.claude-3-haiku-20240307-v1:0"
-BEDROCK_MODEL_IDS="anthropic.claude-3-haiku-20240307-v1:0,anthropic.claude-3-5-sonnet-20240620-v1:0,amazon.nova-lite-v1:0"
+npm run build:web
 ```
 
-`AWS_PROFILE` is optional if your AWS credentials are available through another standard AWS SDK mechanism, such as SSO or environment variables.
+The result is written to `out/`. The Netlify configuration publishes that directory and does not require AWS or database environment variables.
 
-## AWS Bedrock Setup
-
-Use an AWS account with Bedrock available in `eu-west-1`.
-
-In the AWS console:
-
-1. Open Amazon Bedrock.
-2. Go to model access.
-3. Enable access for the model configured as `DEFAULT_BEDROCK_MODEL_ID`.
-4. Confirm the same model ID appears in `BEDROCK_MODEL_IDS` if you want it in the UI selector.
-
-The local AWS identity needs:
-
-```text
-bedrock:InvokeModel
-bedrock:InvokeModelWithResponseStream
-bedrock:ListFoundationModels
-```
-
-`bedrock:ListFoundationModels` is optional for the current app, but useful for future model discovery.
-
-## Data Model
-
-`PromptTemplate` stores reusable prompt setups:
-
-- `name`
-- `systemPrompt`
-- `userPrompt`
-- `modelId`
-- `settings`
-- timestamps
-
-`Run` stores every prompt execution attempt:
-
-- prompt snapshot
-- model ID
-- inference settings
-- output text
-- usage metadata when Bedrock returns it
-- latency
-- raw response
-- error message if the request failed
-- created timestamp
-
-Failed Bedrock calls are intentionally saved. This makes IAM, model access, region, and validation problems visible in run history.
-
-## API Routes
-
-`GET /api/config`
-
-Returns region, default model ID, and configured model IDs for the UI.
-
-`GET /api/runs`
-
-Returns the 50 most recent runs.
-
-`POST /api/runs`
-
-Validates the request, calls Bedrock `Converse`, saves the result, and returns the saved run. If Bedrock fails, saves a failed run and returns status `502`.
-
-Request shape:
-
-```ts
-{
-  modelId: string;
-  systemPrompt?: string;
-  userPrompt: string;
-  settings: {
-    temperature?: number;
-    topP?: number;
-    maxTokens?: number;
-    stopSequences?: string[];
-  };
-}
-```
-
-`GET /api/runs/:id`
-
-Returns one saved run by ID.
-
-`GET /api/templates`
-
-Returns saved prompt templates.
-
-`POST /api/templates`
-
-Saves a reusable prompt template.
-
-## Prompt Lab Workflow
-
-Use the center editor to configure:
-
-- model ID
-- system prompt
-- user prompt
-- temperature
-- topP
-- max tokens
-- stop sequences
-
-Use the left panel to:
-
-- load saved templates
-- inspect recent runs
-- duplicate a previous run into the editor
-- select two runs for comparison
-
-Use the right panel to:
-
-- inspect the latest output
-- view latency and token usage
-- compare two selected runs
+Do not add AWS credentials to the Netlify site. Real execution belongs in the local CLI.
 
 ## Testing
 
-Run:
+Run all tests:
 
 ```bash
 npm test
 ```
 
-Current tests cover:
-
-- mapping internal request payloads to Bedrock `Converse` input
-- normalizing Bedrock responses
-- validating inference settings and prompt requests
-
-Run a production build:
+Build both products:
 
 ```bash
 npm run build
 ```
 
-## Manual Smoke Test
+Current automated coverage includes:
 
-1. Confirm `.env` points to `eu-west-1`.
-2. Confirm AWS credentials are available locally.
-3. Confirm the configured Bedrock model is enabled in the AWS console.
-4. Run `npm run dev`.
-5. Open `http://localhost:3000`.
-6. Submit a short prompt.
-7. Confirm output appears in Latest Output.
-8. Refresh the page.
-9. Confirm the run remains in Recent Runs.
+- Bedrock request mapping.
+- Bedrock response normalization.
+- Input validation and limits.
+- Local run persistence.
+- Template update behavior.
+- Run lookup by short ID.
 
-If the request fails, open the failed run in Recent Runs and read the captured error.
+## Cost and Security Model
 
-## Deployment Notes
+The public website cannot invoke a model, so normal visitors cannot generate Bedrock charges.
 
-V1 is optimized for local use. A later AWS deployment should keep the current boundaries:
+The CLI only makes chargeable inference calls when the user runs `ai-harness run`. `doctor` uses AWS STS, `models` is local by default, and `models --live` uses the Bedrock control plane rather than model inference.
 
-- Keep Bedrock calls server-side.
-- Replace SQLite with DynamoDB or another managed store.
-- Use an IAM role instead of local AWS credentials.
-- Move configuration into deployment environment variables or Secrets Manager.
-- Keep the current API route shapes unless a production client needs a different contract.
-
-Recommended AWS deployment options:
-
-- AWS Amplify for a straightforward Next.js deployment.
-- ECS or App Runner if you want more control over runtime and networking.
-- DynamoDB for saved templates and run history.
+AWS credentials are resolved locally by the AWS SDK and are never written to the AI Harness store.
 
 ## Troubleshooting
 
-If the UI loads but runs fail:
-
-- Check `AWS_REGION`.
-- Check that the model is enabled in Bedrock model access.
-- Check local AWS credentials with `aws sts get-caller-identity`.
-- Check IAM permissions for Bedrock Runtime.
-- Try a different model ID that is enabled in your account.
-
-If Prisma fails to create the database:
+If `doctor` cannot verify AWS:
 
 ```bash
-npm run db:generate
-npm run db:push
+aws sts get-caller-identity
 ```
 
-If dependencies are missing:
+Check the selected profile, SSO session, region, and IAM permissions.
+
+If a model run fails:
+
+- Confirm model access in the Bedrock console.
+- Confirm the model is available in `AWS_REGION`.
+- Confirm `bedrock:InvokeModel` is allowed.
+- Run `ai-harness models --live` to inspect available on-demand text models.
+- Run `ai-harness history` to find the saved error.
+
+If the static site build fails:
 
 ```bash
 npm install
+npm run build:web
+```
+
+If the CLI bundle fails:
+
+```bash
+npm run build:cli
+node dist/cli.mjs --help
 ```

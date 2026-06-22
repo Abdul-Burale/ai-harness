@@ -2,7 +2,7 @@ import type {
   HarnessInferenceSettings,
   HarnessRunRequest,
   PromptTemplatePayload,
-} from "@/lib/types";
+} from "./types";
 
 const MAX_PROMPT_CHARS = 40_000;
 const MAX_STOP_SEQUENCES = 8;

@@ -4,8 +4,8 @@ import {
   type ConverseCommandInput,
   type ConverseCommandOutput,
 } from "@aws-sdk/client-bedrock-runtime";
-import { AWS_REGION } from "@/lib/config";
-import type { HarnessRunRequest, HarnessRunResult } from "@/lib/types";
+import { AWS_REGION } from "./config";
+import type { HarnessRunRequest, HarnessRunResult } from "./types";
 
 export function buildConverseInput(
   request: HarnessRunRequest,

@@ -1,6 +1,7 @@
 node_modules
 .next
 out
+dist
 coverage
 .env
 .env*.local
@@ -8,4 +9,5 @@ dev.db
 prisma/dev.db
 dev.db-journal
 prisma/dev.db-journal
+.ai-harness
 *.tsbuildinfo
