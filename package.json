@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "A local-first AWS Bedrock prompt evaluation CLI with a static product demo.",
   "license": "MIT",
+  "packageManager": "npm@10.9.2",
   "bin": {
     "ai-harness": "./dist/cli.mjs"
   },
